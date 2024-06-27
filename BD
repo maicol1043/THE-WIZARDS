@@ -1,0 +1,219 @@
+RECUPERACION DE  LA CONTRASEÑA DEL LOGIN DE UNA BASE DE DATOS 
+#RESETEO DE CONTRASEÑAS 
+ 
+#atributos para la tabla usuarios 
+
+* nombre
+*correo electronico
+*rol: admin, usuario
+*retesear_contraseña
+*token_contraseña
+*expired_sesion
+
+
+
+# BASE DE DATOS 
+
+# Usuarios
+id_usuario 
+nombre
+email
+contraseña (hash)
+rol (estudiante, profesor, administrador)
+
+
+#Laboratorios
+id_lab 
+nombre_lab
+ubicación 
+capacidad
+
+#Reservas
+id_reserva
+id_usuario
+id_laboratorio
+fecha_reserva
+hora_inicio
+hora_fin
+
+
+#Disponibilidad
+id_dispo
+id_laboratorio
+dia_semana
+hora_inicio
+hora_fin
+
+-- Creacion de la  base de datos
+CREATE DATABASE Lab_computacion;
+USE SistemaDomotico;
+
+-- tabla Usuarios
+CREATE TABLE Usuarios (
+    id_usuario INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    contraseña VARCHAR(255) NOT NULL,
+    rol ENUM('estudiante', 'profesor', 'administrador') NOT NULL
+);
+
+-- tabla Laboratorios
+CREATE TABLE Laboratorios (
+    id_lab INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_lab VARCHAR(100) NOT NULL,
+    ubicacion VARCHAR(255) NOT NULL,
+    capacidad INT NOT NULL
+);
+
+--  tabla Reservas
+CREATE TABLE Reservas (
+    id_reserva INT AUTO_INCREMENT PRIMARY KEY,
+    id_usuario INT NOT NULL,
+    id_laboratorio INT NOT NULL,
+    fecha_reserva DATE NOT NULL,
+    hora_inicio TIME NOT NULL,
+    hora_fin TIME NOT NULL,
+    FOREIGN KEY (id_usuario) REFERENCES Usuarios(id_usuario),
+    FOREIGN KEY (id_laboratorio) REFERENCES Laboratorios(id_lab)
+);
+
+-- tabla Disponibilidad
+CREATE TABLE Disponibilidad (
+    id_dispo INT AUTO_INCREMENT PRIMARY KEY,
+    id_laboratorio INT NOT NULL,
+    dia_semana ENUM('Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo') NOT NULL,
+    hora_inicio TIME NOT NULL,
+    hora_fin TIME NOT NULL,
+    FOREIGN KEY (id_laboratorio) REFERENCES Laboratorios(id_lab)
+);
+
+-- Usar la base de datos
+USE Lab_computacion;
+
+-- Insertar registros en la tabla Usuarios
+INSERT INTO Usuarios (nombre, email, contraseña, rol) VALUES
+('Juan Perez', 'juan.perez@example.com', 'hash_contraseña1', 'estudiante'),
+('Ana Garcia', 'ana.garcia@example.com', 'hash_contraseña2', 'profesor'),
+('Carlos Ruiz', 'carlos.ruiz@example.com', 'hash_contraseña3', 'administrador'),
+('Maria Lopez', 'maria.lopez@example.com', 'hash_contraseña4', 'estudiante'),
+('Luis Martinez', 'luis.martinez@example.com', 'hash_contraseña5', 'profesor');
+
+-- Insertar registros en la tabla Laboratorios
+INSERT INTO Laboratorios (nombre_lab, ubicacion, capacidad) VALUES
+('Lab Computación 1', 'Edificio A, Piso 1', 30),
+('Lab Computación 2', 'Edificio A, Piso 2', 25),
+('Lab Electrónica', 'Edificio B, Piso 1', 20),
+('Lab Física', 'Edificio C, Piso 1', 35),
+('Lab Química', 'Edificio C, Piso 2', 30);
+
+-- Insertar registros en la tabla Reservas
+INSERT INTO Reservas (id_usuario, id_laboratorio, fecha_reserva, hora_inicio, hora_fin) VALUES
+(1, 1, '2024-07-01', '08:00:00', '10:00:00'),
+(2, 2, '2024-07-01', '10:00:00', '12:00:00'),
+(3, 3, '2024-07-02', '09:00:00', '11:00:00'),
+(4, 4, '2024-07-03', '11:00:00', '13:00:00'),
+(5, 5, '2024-07-04', '12:00:00', '14:00:00');
+
+-- Insertar registros en la tabla Disponibilidad
+INSERT INTO Disponibilidad (id_laboratorio, dia_semana, hora_inicio, hora_fin) VALUES
+(1, 'Lunes', '08:00:00', '18:00:00'),
+(2, 'Martes', '08:00:00', '18:00:00'),
+(3, 'Miércoles', '08:00:00', '18:00:00'),
+(4, 'Jueves', '08:00:00', '18:00:00'),
+(5, 'Viernes', '08:00:00', '18:00:00');
+
+
+
+
+AÑADIR LA COLUMNA TOKEN 
+
+ALTER TABLE Usuarios ADD COLUMN token_recuperacion VARCHAR(255);
+
+
+GENERAR EL TOKEN 
+<?php
+function enviarCorreoRecuperacion($email) {
+    // Conectar a la base de datos
+    $conn = new mysqli('host', 'usuario', 'contraseña', 'Lab_computacion');
+
+    // Verificar conexión
+    if ($conn->connect_error) {
+        die("Conexión fallida: " . $conn->connect_error);
+    }
+
+    // Buscar el usuario por email
+    $stmt = $conn->prepare("SELECT id_usuario FROM Usuarios WHERE email = ?");
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows > 0) {
+        // Generar un token de recuperación único
+        $token = bin2hex(random_bytes(50));
+
+        // Guardar el token en la base de datos
+        $row = $result->fetch_assoc();
+        $stmt = $conn->prepare("UPDATE Usuarios SET token_recuperacion = ? WHERE id_usuario = ?");
+        $stmt->bind_param("si", $token, $row['id_usuario']);
+        $stmt->execute();
+
+        // Enviar el email con el enlace de recuperación
+        $url = "http://tudominio.com/restablecer.php?token=" . $token;
+        $asunto = "Recuperación de contraseña";
+        $mensaje = "Haz clic en el siguiente enlace para restablecer tu contraseña: " . $url;
+        mail($email, $asunto, $mensaje);
+    }
+
+    $stmt->close();
+    $conn->close();
+}
+?>
+
+
+
+RESTABLACER CONTRASEÑA 
+
+
+<?php
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $token = $_POST['token'];
+    $nueva_contraseña = password_hash($_POST['nueva_contraseña'], PASSWORD_BCRYPT);
+
+    // Conectar a la base de datos
+    $conn = new mysqli('host', 'usuario', 'contraseña', 'Lab_computacion');
+
+    // Verificar conexión
+    if ($conn->connect_error) {
+        die("Conexión fallida: " . $conn->connect_error);
+    }
+
+    // Validar el token y actualizar la contraseña
+    $stmt = $conn->prepare("SELECT id_usuario FROM Usuarios WHERE token_recuperacion = ?");
+    $stmt->bind_param("s", $token);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $stmt = $conn->prepare("UPDATE Usuarios SET contraseña = ?, token_recuperacion = NULL WHERE id_usuario = ?");
+        $stmt->bind_param("si", $nueva_contraseña, $row['id_usuario']);
+        $stmt->execute();
+
+        echo "Contraseña actualizada con éxito.";
+    } else {
+        echo "Token no válido o expirado.";
+    }
+
+    $stmt->close();
+    $conn->close();
+} else {
+    $token = $_GET['token'];
+    echo '<form method="POST">
+            <input type="hidden" name="token" value="' . $token . '">
+            <label for="nueva_contraseña">Nueva Contraseña:</label>
+            <input type="password" name="nueva_contraseña" required>
+            <button type="submit">Restablecer Contraseña</button>
+          </form>';
+}
+?>
+
